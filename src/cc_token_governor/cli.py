@@ -56,6 +56,22 @@ def cmd_suggest(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_explain(args: argparse.Namespace) -> int:
+    """Show all learned rules for a project (auditable)."""
+    store = LearningStore(args.db)
+    rules = store.list_rules(project_root=args.project, limit=args.limit)
+    print(json.dumps({"rules": rules, "count": len(rules)}, ensure_ascii=False, indent=2))
+    return 0
+
+
+def cmd_clear_rules(args: argparse.Namespace) -> int:
+    """Clear all learned rules for a project."""
+    store = LearningStore(args.db)
+    count = store.clear_rules(project_root=args.project)
+    print(f"Cleared {count} rules for project {args.project}")
+    return 0
+
+
 def cmd_hook_pre(args: argparse.Namespace) -> int:
     payload = json.load(sys.stdin)
     result = run_pre_tool_use(payload, policy_path=args.policy, state_path=args.state)
@@ -119,6 +135,17 @@ def build_parser() -> argparse.ArgumentParser:
     suggest.add_argument("--db", default=None)
     suggest.add_argument("--limit", type=int, default=5)
     suggest.set_defaults(func=cmd_suggest)
+
+    explain = sub.add_parser("explain", help="List all learned rules for a project")
+    explain.add_argument("--project", default=".")
+    explain.add_argument("--db", default=None)
+    explain.add_argument("--limit", type=int, default=50)
+    explain.set_defaults(func=cmd_explain)
+
+    clear = sub.add_parser("clear-rules", help="Clear all learned rules for a project")
+    clear.add_argument("--project", default=".")
+    clear.add_argument("--db", default=None)
+    clear.set_defaults(func=cmd_clear_rules)
 
     hook_pre = sub.add_parser("hook-pre-tool-use", help="Run PreToolUse hook from stdin")
     hook_pre.add_argument("--policy", default=None)

@@ -51,8 +51,8 @@ class GovernorTests(unittest.TestCase):
             second = run_pre_tool_use(payload, state_path=state)
 
         self.assertEqual(first["decision"], "approve")
-        self.assertIn("additionalContext", second)
-        self.assertIn("already read", second["additionalContext"])
+        self.assertEqual(second["decision"], "warn")
+        self.assertIn("already read", second["reason"])
 
     def test_pre_tool_use_blocks_third_failed_command(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -18,7 +18,7 @@ def default_policies() -> list[Policy]:
         ),
         Policy(
             id="stop-death-loop",
-            trigger={"tool_name": ["Bash", "PowerShell"], "same_failed_command_count_gte": 3},
+            trigger={"tool_name": ["Bash", "PowerShell"], "same_failed_command_count_gte": 2},
             action="block",
             message="This command already failed twice. Analyze the failure and choose a different fix before retrying.",
             confidence="high",

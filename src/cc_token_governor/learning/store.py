@@ -118,3 +118,36 @@ class LearningStore:
                 ).fetchall()
             result = [dict(row) for row in rows]
         return result
+
+    def list_rules(self, project_root: str = ".", limit: int = 50) -> list[dict]:
+        """List all learned rules for a project (for auditing)."""
+        project = str(Path(project_root).resolve())
+        with closing(self.connect()) as con:
+            con.row_factory = sqlite3.Row
+            rows = con.execute(
+                """
+                select * from rules
+                where project_root in (?, '.')
+                order by id desc
+                limit ?
+                """,
+                (project, limit),
+            ).fetchall()
+            return [dict(row) for row in rows]
+
+    def clear_rules(self, project_root: str = ".") -> int:
+        """Clear all learned rules for a project. Returns count of deleted rules."""
+        project = str(Path(project_root).resolve())
+        with closing(self.connect()) as con:
+            cur = con.execute(
+                "delete from rules where project_root in (?, '.')",
+                (project,),
+            )
+            try:
+                con.execute(
+                    "delete from rules_fts where rule_id not in (select id from rules)"
+                )
+            except sqlite3.OperationalError:
+                pass
+            con.commit()
+            return cur.rowcount

@@ -1,7 +1,9 @@
+"""JSONL session reader with schema version detection and graceful degradation."""
 from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import re
 from datetime import datetime
 from pathlib import Path
@@ -9,7 +11,31 @@ from typing import Any
 
 from cc_token_governor.models import ToolCall
 
+logger = logging.getLogger(__name__)
+
 PROJECTS_DIR = Path.home() / ".claude" / "projects"
+
+# Known schema versions and their entry structure markers.
+# v1 (current): entries have "type" field ("assistant", "user"), "message" with "content" blocks.
+SCHEMA_V1_MARKERS = {"type", "message"}
+
+
+def _detect_schema_version(entries: list[dict[str, Any]]) -> str:
+    """Detect the JSONL schema version from a sample of entries.
+
+    Returns: "v1", "v2", or "unknown".
+    """
+    if not entries:
+        return "unknown"
+
+    sample = entries[:5]
+    for entry in sample:
+        keys = set(entry.keys())
+        if keys >= SCHEMA_V1_MARKERS:
+            return "v1"
+        # Future: add v2 markers here
+
+    return "unknown"
 
 
 def iter_jsonl_files(path: str | Path | None = None) -> list[Path]:
@@ -31,44 +57,70 @@ def read_tool_calls(path: str | Path | None = None) -> list[ToolCall]:
     return calls
 
 
-def read_session_tool_calls(jsonl_path: Path) -> list[ToolCall]:
-    session_id = jsonl_path.stem
-    tool_uses: dict[str, dict[str, Any]] = {}
-    tool_results: dict[str, dict[str, Any]] = {}
-
+def _parse_entries(jsonl_path: Path) -> list[dict[str, Any]]:
+    """Parse all valid JSON lines from a file, skipping corrupt lines."""
+    entries = []
     with open(jsonl_path, "r", encoding="utf-8") as handle:
-        for line in handle:
+        for line_num, line in enumerate(handle, 1):
             line = line.strip()
             if not line:
                 continue
             try:
-                entry = json.loads(line)
+                entries.append(json.loads(line))
             except json.JSONDecodeError:
+                logger.debug("Skipping invalid JSON at %s:%d", jsonl_path, line_num)
                 continue
+    return entries
 
-            if entry.get("type") == "assistant" and not entry.get("isSidechain"):
-                message = entry.get("message", {})
-                for block in message.get("content", []) or []:
-                    if isinstance(block, dict) and block.get("type") == "tool_use":
-                        tool_uses[block.get("id", "")] = {
-                            "name": block.get("name", ""),
-                            "input": block.get("input", {}) or {},
-                            "timestamp": entry.get("timestamp", ""),
-                        }
 
-            elif entry.get("type") == "user":
-                message = entry.get("message", {})
-                content = message.get("content", [])
-                if not isinstance(content, list):
-                    continue
-                for block in content:
-                    if isinstance(block, dict) and block.get("type") == "tool_result":
-                        tool_results[block.get("tool_use_id", "")] = {
-                            "content": block.get("content", []),
-                            "is_error": bool(block.get("is_error", False)),
-                            "timestamp": entry.get("timestamp", ""),
-                            "toolUseResult": block.get("toolUseResult", {}),
-                        }
+def read_session_tool_calls(jsonl_path: Path) -> list[ToolCall]:
+    """Read tool calls from a JSONL session file with version detection."""
+    entries = _parse_entries(jsonl_path)
+    version = _detect_schema_version(entries)
+
+    if version == "v1":
+        return _read_v1(jsonl_path, entries)
+    elif version == "unknown":
+        logger.warning(
+            "Unknown JSONL schema in %s — attempting v1 fallback. "
+            "Results may be incomplete. Consider updating cc-token-governor.",
+            jsonl_path,
+        )
+        return _read_v1(jsonl_path, entries)
+
+    return []
+
+
+def _read_v1(jsonl_path: Path, entries: list[dict[str, Any]]) -> list[ToolCall]:
+    """Parse tool calls from v1 schema entries."""
+    session_id = jsonl_path.stem
+    tool_uses: dict[str, dict[str, Any]] = {}
+    tool_results: dict[str, dict[str, Any]] = {}
+
+    for entry in entries:
+        if entry.get("type") == "assistant" and not entry.get("isSidechain"):
+            message = entry.get("message", {})
+            for block in message.get("content", []) or []:
+                if isinstance(block, dict) and block.get("type") == "tool_use":
+                    tool_uses[block.get("id", "")] = {
+                        "name": block.get("name", ""),
+                        "input": block.get("input", {}) or {},
+                        "timestamp": entry.get("timestamp", ""),
+                    }
+
+        elif entry.get("type") == "user":
+            message = entry.get("message", {})
+            content = message.get("content", [])
+            if not isinstance(content, list):
+                continue
+            for block in content:
+                if isinstance(block, dict) and block.get("type") == "tool_result":
+                    tool_results[block.get("tool_use_id", "")] = {
+                        "content": block.get("content", []),
+                        "is_error": bool(block.get("is_error", False)),
+                        "timestamp": entry.get("timestamp", ""),
+                        "toolUseResult": block.get("toolUseResult", {}),
+                    }
 
     calls: list[ToolCall] = []
     for tool_use_id, use in tool_uses.items():
