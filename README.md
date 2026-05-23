@@ -4,12 +4,18 @@
 
 It is not a token dashboard. The goal is to help Claude Code finish the task with fewer repeated reads, huge shell outputs, blind retries, and whole-file rewrites.
 
+## What's New in 2.0.1
+
+- **Claude Code hooks format**: Hook output now uses official `hookSpecificOutput.permissionDecision` format. `warn` policies output `permissionDecision: "allow"` + `additionalContext`. `block` policies output `permissionDecision: "deny"`.
+- **Portable install-hooks**: `--portable` flag generates `python -m cc_token_governor.cli` commands (no repo path needed). `--relative` flag for relative paths.
+- **Environment variable support**: `CC_GOVERNOR_DB` and `CC_GOVERNOR_STATE` env vars for DB/state path override. Falls back to project-local if home dir is not writable.
+
 ## What's New in 2.0
 
 - **Policy-driven runtime**: The `governor-policy.json` file now actually drives hook decisions. No more hardcoded logic — policies are compiled into an evaluator that produces runtime decisions.
 - **SQLite state management**: Runtime state (reads, failed commands, events) is stored in SQLite with WAL mode, replacing the fragile JSON file. Transactions, crash recovery, and concurrent safety included.
 - **JSONL schema version detection**: The reader detects the JSONL format version and gracefully degrades on unknown schemas instead of silently producing wrong results.
-- **Comprehensive test suite**: 73 tests covering evaluator, sniffers, hook runner, CLI, JSONL reader edge cases, and more.
+- **Comprehensive test suite**: 74 tests covering evaluator, sniffers, hook runner, CLI, JSONL reader edge cases, and more.
 - **MIT License**: Now properly licensed for use, distribution, and modification.
 
 ## Architecture

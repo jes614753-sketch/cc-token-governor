@@ -94,12 +94,26 @@ def cmd_hook_prompt(args: argparse.Namespace) -> int:
 
 
 def cmd_install_hooks(args: argparse.Namespace) -> int:
-    root = Path(args.root).resolve()
+    if args.portable:
+        pre = "python -m cc_token_governor.cli hook-pre-tool-use --policy governor-policy.json"
+        post = "python -m cc_token_governor.cli hook-post-tool-use"
+        prompt = "python -m cc_token_governor.cli hook-user-prompt-submit"
+    elif args.relative:
+        root = Path(args.root)
+        pre = f"python {root / 'hooks' / 'pre_tool_use.py'} --policy governor-policy.json"
+        post = f"python {root / 'hooks' / 'post_tool_use.py'}"
+        prompt = f"python {root / 'hooks' / 'user_prompt_submit.py'}"
+    else:
+        root = Path(args.root).resolve()
+        pre = f"python {root / 'hooks' / 'pre_tool_use.py'} --policy governor-policy.json"
+        post = f"python {root / 'hooks' / 'post_tool_use.py'}"
+        prompt = f"python {root / 'hooks' / 'user_prompt_submit.py'}"
+
     config = {
         "hooks": {
-            "PreToolUse": [{"command": f"python {root / 'hooks' / 'pre_tool_use.py'} --policy governor-policy.json"}],
-            "PostToolUse": [{"command": f"python {root / 'hooks' / 'post_tool_use.py'}"}],
-            "UserPromptSubmit": [{"command": f"python {root / 'hooks' / 'user_prompt_submit.py'}"}],
+            "PreToolUse": [{"command": pre}],
+            "PostToolUse": [{"command": post}],
+            "UserPromptSubmit": [{"command": prompt}],
         }
     }
     print(json.dumps(config, ensure_ascii=False, indent=2))
@@ -163,6 +177,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     install = sub.add_parser("install-hooks", help="Print Claude Code hook config snippet")
     install.add_argument("--root", default=".")
+    install.add_argument("--portable", action="store_true", help="Use python -m cc_token_governor.cli (no repo path needed)")
+    install.add_argument("--relative", action="store_true", help="Use relative paths instead of absolute")
     install.set_defaults(func=cmd_install_hooks)
     return parser
 

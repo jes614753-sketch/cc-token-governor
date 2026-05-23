@@ -50,9 +50,9 @@ class GovernorTests(unittest.TestCase):
             first = run_pre_tool_use(payload, state_path=state)
             second = run_pre_tool_use(payload, state_path=state)
 
-        self.assertEqual(first["decision"], "approve")
-        self.assertEqual(second["decision"], "warn")
-        self.assertIn("already read", second["reason"])
+        self.assertEqual(first["hookSpecificOutput"]["permissionDecision"], "allow")
+        self.assertEqual(second["hookSpecificOutput"]["permissionDecision"], "allow")
+        self.assertIn("already read", second["hookSpecificOutput"]["additionalContext"])
 
     def test_pre_tool_use_blocks_third_failed_command(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -72,7 +72,7 @@ class GovernorTests(unittest.TestCase):
                 "tool_input": {"command": "npm run build"},
             }, state_path=state)
 
-        self.assertEqual(decision["decision"], "block")
+        self.assertEqual(decision["hookSpecificOutput"]["permissionDecision"], "deny")
 
     def test_learning_store_round_trip(self):
         with tempfile.TemporaryDirectory() as tmp:

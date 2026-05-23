@@ -1,4 +1,11 @@
-"""Hook runner — policy-driven runtime decisions for Claude Code hooks."""
+"""Hook runner — policy-driven runtime decisions for Claude Code hooks.
+
+Output format follows Claude Code hooks specification:
+- PreToolUse: hookSpecificOutput.permissionDecision (allow/deny/ask/defer)
+- PostToolUse: omit decision to allow, decision:"block" to deny
+- UserPromptSubmit: omit decision to allow, decision:"block" to deny
+- additionalContext always goes inside hookSpecificOutput
+"""
 from __future__ import annotations
 
 import hashlib
@@ -64,6 +71,90 @@ def _infer_payload_status(payload: dict[str, Any]) -> str:
     return payload.get("status") or "success"
 
 
+def _to_pre_tool_use_output(result: dict[str, Any]) -> dict[str, Any]:
+    """Convert internal evaluator result to Claude Code PreToolUse hook format.
+
+    Internal actions:
+      - "approve" → permissionDecision: "allow"
+      - "warn"    → permissionDecision: "allow" + additionalContext
+      - "block"   → permissionDecision: "deny" + permissionDecisionReason
+    """
+    action = result.get("decision", "approve")
+    reason = result.get("reason", "")
+    policy_id = result.get("policy_id", "")
+
+    if action == "block":
+        output: dict[str, Any] = {
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "deny",
+                "permissionDecisionReason": reason,
+            },
+        }
+    elif action == "warn":
+        output = {
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "allow",
+                "additionalContext": reason,
+            },
+        }
+    else:
+        output = {
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "allow",
+            },
+        }
+
+    if policy_id:
+        output["policy_id"] = policy_id
+    return output
+
+
+def _to_post_tool_use_output(result: dict[str, Any]) -> dict[str, Any]:
+    """Convert internal result to Claude Code PostToolUse hook format.
+
+    PostToolUse: omit decision to allow, decision:"block" to deny.
+    """
+    action = result.get("decision", "approve")
+    if action == "block":
+        return {
+            "decision": "block",
+            "reason": result.get("reason", ""),
+        }
+    return {}
+
+
+def _to_user_prompt_submit_output(result: dict[str, Any]) -> dict[str, Any]:
+    """Convert internal result to Claude Code UserPromptSubmit hook format.
+
+    UserPromptSubmit: omit decision to allow, decision:"block" to deny.
+    additionalContext goes inside hookSpecificOutput.
+    """
+    action = result.get("decision", "approve")
+    additional_ctx = result.get("additionalContext", "")
+
+    if action == "block":
+        return {
+            "decision": "block",
+            "reason": result.get("reason", ""),
+        }
+
+    if additional_ctx:
+        return {
+            "hookSpecificOutput": {
+                "hookEventName": "UserPromptSubmit",
+                "additionalContext": additional_ctx,
+            },
+        }
+    return {}
+
+
+# ---------------------------------------------------------------------------
+# Public API — called by hook scripts
+# ---------------------------------------------------------------------------
+
 def run_pre_tool_use(
     payload: dict[str, Any],
     policy_path: str | Path | None = None,
@@ -71,24 +162,17 @@ def run_pre_tool_use(
 ) -> dict[str, Any]:
     """Evaluate a PreToolUse hook payload against policies.
 
-    Safety invariants (non-configurable):
-    - Block if state store is corrupted.
-
-    Governance rules (policy-driven via PolicyEvaluator):
-    - Repeated file reads → warn
-    - Death loops → block
-    - Large edits → warn
-    - Risky output commands → warn
+    Returns Claude Code hook format with hookSpecificOutput.permissionDecision.
     """
     # Safety invariant: state integrity
     try:
         state = StateStore(state_path)
     except Exception:
-        return {
+        return _to_pre_tool_use_output({
             "decision": "block",
             "reason": "Governor state file is corrupted. Delete it and retry.",
             "policy_id": SAFETY_BLOCK_BROKEN_STATE,
-        }
+        })
 
     tool_name, tool_input = _extract_tool(payload)
     session_id = _extract_session_id(payload)
@@ -127,18 +211,21 @@ def run_pre_tool_use(
             "tool_name": tool_name,
         })
 
-    return result
+    return _to_pre_tool_use_output(result)
 
 
 def run_post_tool_use(
     payload: dict[str, Any],
     state_path: str | Path | None = None,
 ) -> dict[str, Any]:
-    """Record command results for death-loop tracking."""
+    """Record command results for death-loop tracking.
+
+    Returns Claude Code hook format (empty dict to allow, or decision:"block").
+    """
     try:
         state = StateStore(state_path)
     except Exception:
-        return {"decision": "approve"}
+        return {}
 
     tool_name, tool_input = _extract_tool(payload)
     session_id = _extract_session_id(payload)
@@ -149,7 +236,7 @@ def run_post_tool_use(
         if command:
             state.record_command_result(session_id, _hash_text(command), status)
 
-    return {"decision": "approve"}
+    return {}
 
 
 def run_user_prompt_submit(
@@ -157,14 +244,24 @@ def run_user_prompt_submit(
     db_path: str | Path | None = None,
     limit: int = 5,
 ) -> dict[str, Any]:
-    """Inject learned rules as context for the next prompt."""
+    """Inject learned rules as context for the next prompt.
+
+    Returns Claude Code hook format with hookSpecificOutput.additionalContext.
+    Never blocks — injection failure is non-fatal.
+    """
     prompt = payload.get("prompt") or payload.get("user_prompt") or payload.get("message") or ""
     project = payload.get("project_root") or payload.get("cwd") or "."
-    store = LearningStore(db_path)
-    rules = store.suggest(prompt, project_root=project, limit=limit)
+
+    try:
+        store = LearningStore(db_path)
+        rules = store.suggest(prompt, project_root=project, limit=limit)
+    except Exception:
+        return {}
+
     if not rules:
-        return {"decision": "approve"}
+        return {}
+
     lines = ["Relevant learned project rules:"]
     for rule in rules:
         lines.append(f"- {rule['correction']}")
-    return {"decision": "approve", "additionalContext": "\n".join(lines)}
+    return _to_user_prompt_submit_output({"decision": "approve", "additionalContext": "\n".join(lines)})

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 from contextlib import closing
 from datetime import datetime
@@ -13,11 +14,15 @@ class StateStore:
 
     Uses SQLite with WAL for durability and concurrency safety.
     Falls back gracefully if the DB file is corrupted.
+
+    Path priority: explicit arg → CC_GOVERNOR_STATE env var → cwd/.cc-governor-state.sqlite
     """
 
     def __init__(self, path: str | Path | None = None):
         if path:
             self.path = Path(path)
+        elif os.environ.get("CC_GOVERNOR_STATE"):
+            self.path = Path(os.environ["CC_GOVERNOR_STATE"])
         else:
             self.path = Path.cwd() / ".cc-governor-state.sqlite"
         self.path.parent.mkdir(parents=True, exist_ok=True)

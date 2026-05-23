@@ -1,14 +1,33 @@
 from __future__ import annotations
 
+import os
 import sqlite3
 from contextlib import closing
 from datetime import datetime
 from pathlib import Path
 
 
+def _resolve_db_path(env_var: str, default_name: str) -> Path:
+    """Resolve DB path with priority: env var → project local → user home."""
+    env = os.environ.get(env_var)
+    if env:
+        return Path(env)
+
+    project_local = Path.cwd() / ".cc-token-governor" / default_name
+    home_default = Path.home() / ".cc-token-governor" / default_name
+
+    # Try home first; fall back to project local if home is not writable
+    try:
+        home_default.parent.mkdir(parents=True, exist_ok=True)
+        return home_default
+    except (OSError, PermissionError):
+        project_local.parent.mkdir(parents=True, exist_ok=True)
+        return project_local
+
+
 class LearningStore:
     def __init__(self, path: str | Path | None = None):
-        self.path = Path(path) if path else Path.home() / ".cc-token-governor" / "rules.sqlite"
+        self.path = Path(path) if path else _resolve_db_path("CC_GOVERNOR_DB", "rules.sqlite")
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._init()
 
