@@ -1,0 +1,8 @@
+{
+  "session_id": "demo",
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "npm run build"
+  },
+  "tool_result": "Exit code 1\nbuild failed"
+}

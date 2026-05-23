@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+build/
+dist/
+.venv/
+.pytest_cache/
+.coverage
+governor-policy.json
+learning-report.json
+.cc-governor-state.json
+*.db
+*.sqlite
