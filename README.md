@@ -4,6 +4,11 @@
 
 It is not a token dashboard. The goal is to help Claude Code finish the task with fewer repeated reads, huge shell outputs, blind retries, and whole-file rewrites.
 
+## What's New in 2.0.2
+
+- **Toxic file policies now work at runtime**: Compiled `avoid-toxic-files` policies receive a real `toxic_file_path` signal for `Read`, `Edit`, `Write`, and `MultiEdit`.
+- **Hook examples fixed**: README examples now show the Claude Code `hookSpecificOutput` shape instead of the internal evaluator shape.
+
 ## What's New in 2.0.1
 
 - **Claude Code hooks format**: Hook output now uses official `hookSpecificOutput.permissionDecision` format. `warn` policies output `permissionDecision: "allow"` + `additionalContext`. `block` policies output `permissionDecision: "deny"`.
@@ -32,13 +37,15 @@ learning/store.py       → SQLite learning store with FTS5
 
 **Safety invariants** (non-configurable): State corruption protection, hook timeout protection.
 
-**Governor rules** (policy-driven): Repeated reads, death loops, large edits, risky output, toxic files.
+**Governor rules** (policy-driven): Repeated reads, death loops, large edits, risky output, plus toxic files when audit findings compile an `avoid-toxic-files` policy.
 
 ## Install
 
 ```bash
 pip install -e .
 ```
+
+Use `cc-governor install-hooks --portable` after installing the package. The portable hook snippet uses `python -m cc_token_governor.cli`, so Python must be able to import the installed package.
 
 ## Quick Start
 
@@ -99,10 +106,12 @@ Output:
 
 ```json
 {
-  "decision": "warn",
-  "reason": "This file was already read in this session.",
-  "policy_id": "avoid-repeated-read",
-  "confidence": "high"
+  "hookSpecificOutput": {
+    "hookEventName": "PreToolUse",
+    "permissionDecision": "allow",
+    "additionalContext": "This file was already read in this session."
+  },
+  "policy_id": "avoid-repeated-read"
 }
 ```
 

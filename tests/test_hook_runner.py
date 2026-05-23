@@ -68,6 +68,55 @@ class PreToolUsePolicyDrivenTests(unittest.TestCase):
         self.assertIn("additionalContext", result["hookSpecificOutput"])
         self.assertEqual(result["policy_id"], "cap-bash-output")
 
+    def test_toxic_file_policy_warns_via_additional_context(self):
+        custom_policy = {
+            "schema_version": 1,
+            "policies": [{
+                "id": "avoid-toxic-files",
+                "trigger": {"tool_name": ["Read", "Edit"], "toxic_file_path": True},
+                "action": "warn",
+                "message": "Avoid reading generated or dependency files.",
+                "confidence": "high",
+            }],
+        }
+        policy_path = Path(self.tmp) / "toxic-policy.json"
+        policy_path.write_text(json.dumps(custom_policy), encoding="utf-8")
+
+        result = run_pre_tool_use(
+            {"session_id": "s1", "tool_name": "Read", "tool_input": {"file_path": "node_modules/react/index.js"}},
+            policy_path=str(policy_path),
+            state_path=self.state,
+        )
+
+        self.assertEqual(result["hookSpecificOutput"]["permissionDecision"], "allow")
+        self.assertIn("additionalContext", result["hookSpecificOutput"])
+        self.assertEqual(result["policy_id"], "avoid-toxic-files")
+
+    def test_policy_loader_accepts_utf8_bom_files(self):
+        policy_path = Path(self.tmp) / "bom-policy.json"
+        policy_path.write_text(
+            "\ufeff" + json.dumps({
+                "schema_version": 1,
+                "policies": [{
+                    "id": "avoid-toxic-files",
+                    "trigger": {"tool_name": ["Read", "Edit"], "toxic_file_path": True},
+                    "action": "warn",
+                    "message": "Avoid toxic files.",
+                    "confidence": "high",
+                }],
+            }),
+            encoding="utf-8",
+        )
+
+        result = run_pre_tool_use(
+            {"session_id": "s1", "tool_name": "Read", "tool_input": {"file_path": "dist/app.js"}},
+            policy_path=str(policy_path),
+            state_path=self.state,
+        )
+
+        self.assertEqual(result["hookSpecificOutput"]["permissionDecision"], "allow")
+        self.assertEqual(result["policy_id"], "avoid-toxic-files")
+
     def test_guarded_command_no_risky_warn(self):
         result = run_pre_tool_use(
             {"session_id": "s1", "tool_name": "Bash", "tool_input": {"command": "cat giant.log | head -20"}},

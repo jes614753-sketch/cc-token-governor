@@ -1,27 +1,14 @@
 from __future__ import annotations
 
-import re
 from collections import defaultdict
 
 from cc_token_governor.models import Finding, ToolCall
+from cc_token_governor.toxicity import classify_toxic
 
 LARGE_OUTPUT_BYTES = 20_000
 CRITICAL_OUTPUT_BYTES = 100_000
 LARGE_EDIT_BYTES = 20_000
 FAILURE_STATUSES = {"failed", "timeout"}
-
-TOXIC_PATTERNS = [
-    (r"(^|/)node_modules/", "dependency"),
-    (r"(^|/)vendor/", "dependency"),
-    (r"(^|/)dist/", "build_output"),
-    (r"(^|/)build/", "build_output"),
-    (r"(^|/)\.next/", "build_output"),
-    (r"(^|/)coverage/", "generated"),
-    (r"(^|/)\.git/", "vcs"),
-    (r"(^|/)(package-lock\.json|yarn\.lock|pnpm-lock\.yaml|Cargo\.lock|Gemfile\.lock)$", "lockfile"),
-    (r"\.(png|jpg|jpeg|gif|ico|svg|webp|pdf|zip|tar|gz|7z|rar)$", "binary_or_media"),
-]
-
 
 def audit_tool_calls(tool_calls: list[ToolCall]) -> list[Finding]:
     findings: list[Finding] = []
@@ -152,14 +139,6 @@ def find_large_edits(tool_calls: list[ToolCall]) -> list[Finding]:
             confidence="high",
         ))
     return findings
-
-
-def classify_toxic(file_path: str) -> str | None:
-    normalized = file_path.replace("\\", "/").lower()
-    for pattern, category in TOXIC_PATTERNS:
-        if re.search(pattern, normalized):
-            return category
-    return None
 
 
 def make_death_loop_finding(session_id: str, calls: list[ToolCall]) -> Finding:

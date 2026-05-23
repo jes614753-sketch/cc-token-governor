@@ -55,7 +55,7 @@ def compile_policies(findings: list[Finding]) -> list[Policy]:
 
 
 def load_findings(path: str | Path) -> list[Finding]:
-    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    data = json.loads(Path(path).read_text(encoding="utf-8-sig"))
     raw_findings: list[dict[str, Any]] = []
     if isinstance(data.get("findings"), list):
         raw_findings = data["findings"]
@@ -79,5 +79,5 @@ def load_policy_file(path: str | Path | None = None) -> list[Policy]:
     p = Path(path)
     if not p.exists():
         return default_policies()
-    data = json.loads(p.read_text(encoding="utf-8"))
+    data = json.loads(p.read_text(encoding="utf-8-sig"))
     return [Policy.from_dict(item) for item in data.get("policies", [])] or default_policies()

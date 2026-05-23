@@ -21,6 +21,7 @@ from cc_token_governor.policy.evaluator import (
     PolicyEvaluator,
 )
 from cc_token_governor.runtime.state import StateStore
+from cc_token_governor.toxicity import classify_toxic
 
 
 def _build_evaluator(policy_path: str | Path | None = None) -> PolicyEvaluator:
@@ -44,6 +45,14 @@ def _is_risky_output_command(command: str) -> bool:
     broad = any(token in lower for token in ["cat ", "type ", "get-content", "find .", "ls -r", "dir /s"])
     guarded = any(token in lower for token in ["head", "tail", "select-object -first", "select-object -last", "rg "])
     return broad and not guarded
+
+
+def _extract_file_path(tool_input: dict[str, Any]) -> str:
+    for key in ("file_path", "path", "file"):
+        value = tool_input.get(key)
+        if isinstance(value, str) and value:
+            return value
+    return ""
 
 
 def _extract_tool(payload: dict[str, Any]) -> tuple[str, dict[str, Any]]:
@@ -182,11 +191,12 @@ def run_pre_tool_use(
     signals: dict[str, Any] = {}
 
     if tool_name == "Read":
-        file_path = tool_input.get("file_path", "")
+        file_path = _extract_file_path(tool_input)
         if file_path:
             count = state.read_count(session_id, file_path)
             state.record_read(session_id, file_path)
             signals["same_file_read_count"] = count + 1
+            signals["toxic_file_path"] = classify_toxic(file_path) is not None
 
     if tool_name in ("Bash", "PowerShell"):
         command = tool_input.get("command", "")
@@ -199,6 +209,9 @@ def run_pre_tool_use(
     if tool_name in ("Edit", "Write", "MultiEdit"):
         input_size = len(json.dumps(tool_input, ensure_ascii=False).encode("utf-8"))
         signals["tool_input_size_bytes"] = input_size
+        file_path = _extract_file_path(tool_input)
+        if file_path:
+            signals["toxic_file_path"] = classify_toxic(file_path) is not None
 
     # Let the policy evaluator decide
     result = evaluator.evaluate(tool_name, tool_input, signals)
